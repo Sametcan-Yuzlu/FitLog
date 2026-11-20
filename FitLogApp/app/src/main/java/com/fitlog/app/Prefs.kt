@@ -27,6 +27,15 @@ class Prefs(context: Context) {
         get() = sp.getString("people", "").orEmpty().split("\n").filter { it.isNotBlank() }
         set(v) = sp.edit().putString("people", v.joinToString("\n")).apply()
 
+    /** Today's saved sets (for the Today list) and the date they belong to. */
+    var today: JSONArray
+        get() = JSONArray(sp.getString("today", "[]"))
+        set(v) = sp.edit().putString("today", v.toString()).apply()
+
+    var todayDate: String
+        get() = sp.getString("todayDate", "").orEmpty()
+        set(v) = sp.edit().putString("todayDate", v).apply()
+
     var pending: JSONArray
         get() = JSONArray(sp.getString("pending", "[]"))
         set(v) = sp.edit().putString("pending", v.toString()).apply()

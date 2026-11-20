@@ -24,7 +24,7 @@ New versions show up on the [Releases page](https://github.com/Sametcan-Yuzlu/Fi
 1. Create a Google Sheet, or use one you already have.
 2. In the sheet, go to **Extensions → Apps Script**.
 3. Delete the sample code and paste everything from [`apps-script/Code.gs`](apps-script/Code.gs). Click **Save**.
-4. On line 11, change `SECRET` to your own random string. The app will ask for it.
+4. On line 14, change `SECRET` to your own random string. The app will ask for it.
 5. Click **Deploy → New deployment**. Pick ⚙ **Web app** and set:
    - *Execute as:* **Me**
    - *Who has access:* **Anyone** (the app doesn't sign in to Google; your secret is what protects the sheet)
@@ -36,8 +36,8 @@ New versions show up on the [Releases page](https://github.com/Sametcan-Yuzlu/Fi
 ## 3. Use it
 
 1. On first launch, enter the **Web app URL** and **Secret**. After you save, it should say *Connected to Google Sheets ✓*.
-2. Pick the **person** (tap a name chip, or type a new name), check the date (today by default), type the exercise, and fill in weight and reps. **Add set** copies the previous set's numbers.
-3. Tap **Save to Google Sheets**. The person, date and exercise stay filled in, so a partner can tap their name and log their set straight after.
+2. Pick the **person** (tap a name chip, or type a new name), check the date (today by default), choose the exercise, and enter the weight and reps of the set you just did.
+3. Tap **Save to sheet**. Weight and reps clear, but person, date and exercise stay filled in, so a partner can tap their name and log their set straight after.
 
 Rows go into the **LiftData** tab, one row per set:
 
@@ -46,10 +46,12 @@ Rows go into the **LiftData** tab, one row per set:
 | Samet | 10/22/2026 | hip_adduction | 1 | 85 | 12 |
 
 - Columns are found by their header names in row 1, so extra columns or a different column order are fine. If the tab doesn't exist yet, it's created with these headers.
-- Exercise names are stored in lowercase with underscores: typing "Leg Press" saves `leg_press`.
-- **SetNo** continues from the sets already logged that day for that person and exercise. Logging one set at a time numbers them 1, 2, 3, …
+- **Exercise names:** the app lists the items from the Exercise column's dropdown (data validation) plus anything already logged. It shows them readably, e.g. `biceps_curl(barbell)` appears as "Biceps Curl (Barbell)", but always saves the exact code from the sheet. A new name you type is saved in the same style: "Fly (Cable)" becomes `fly(cable)`.
+- **SetNo** is filled in by the sheet: it counts on from the sets already logged that day for that person and exercise (1, 2, 3, …).
 
 Other features:
+- **Today list:** every set saved from your phone today appears under the form, newest first. A green tick means the sheet confirmed it, with the set number and row it wrote (e.g. *Set 2 · Leg Press — Samet · 105 × 10 · row 128*). Amber means it's saved on the phone and waiting to sync.
+- **Fix mistakes:** tap a set in the Today list to change its weight and reps, or to delete it. Deleting removes the row and renumbers that person's later sets of the exercise that day, so SetNo has no gaps.
 - **Suggestions:** names and exercises already in the sheet show up as you type.
 - **"Last time" line:** shows that person's previous session for the exercise (e.g. `Samet last time (10/22/2026): 85×12, 85×13`), so you know what to beat.
 - **Offline logging:** without signal, sets are saved on the phone and sent when you're back online.

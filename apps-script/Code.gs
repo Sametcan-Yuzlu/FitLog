@@ -25,6 +25,8 @@ function doPost(e) {
       case 'log':       return json_(logSets_(body));
       case 'exercises': return json_(meta_());
       case 'last':      return json_(lastSession_(String(body.person || ''), String(body.exercise || '')));
+      case 'update':    return json_(editSet_(body, false));
+      case 'delete':    return json_(editSet_(body, true));
       default:          return json_({ ok: false, error: 'Unknown action' });
     }
   } catch (err) {
@@ -77,16 +79,76 @@ function logSets_(body) {
     const start = t.sheet.getLastRow() + 1;
     t.sheet.getRange(start, 1, rows.length, t.width).setValues(rows);
     t.sheet.getRange(start, t.col.Date + 1, rows.length, 1).setNumberFormat(DATE_FORMAT);
-    return { ok: true, added: rows.length };
+    SpreadsheetApp.flush();
+    // Tell the app exactly what was written, as proof the row exists.
+    return {
+      ok: true,
+      added: rows.length,
+      row: start,
+      setNos: rows.map(function (r) { return r[t.col.SetNo]; })
+    };
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Known exercises and people, for the app's suggestions. */
+/**
+ * Changes the weight/reps of one logged set, or deletes it. The set is found by
+ * person + date + exercise + SetNo (not by row number, which shifts when rows are deleted).
+ * After a delete, later sets of the same person/exercise/day are renumbered so SetNo has no gaps.
+ */
+function editSet_(body, remove) {
+  const person = String(body.person || '').trim();
+  const exercise = normExercise_(body.exercise);
+  const dateKey = dayKey_(parseDate_(body.date));
+  const setNo = Number(body.setNo);
+  if (!person || !exercise || !(setNo > 0)) return { ok: false, error: 'Missing set details' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const t = table_();
+    const sameGroup = function (r) {
+      return sameText_(r[t.col.Person], person) &&
+             normExercise_(r[t.col.Exercise]) === exercise &&
+             dayKey_(r[t.col.Date]) === dateKey;
+    };
+    let idx = -1;
+    t.rows.forEach(function (r, i) { if (sameGroup(r) && Number(r[t.col.SetNo]) === setNo) idx = i; });
+    if (idx < 0) return { ok: false, error: 'That set is no longer in the sheet' };
+    const rowNum = idx + 2;
+
+    if (remove) {
+      t.sheet.deleteRow(rowNum);
+      t.rows.forEach(function (r, i) {
+        if (i !== idx && sameGroup(r) && Number(r[t.col.SetNo]) > setNo) {
+          const rn = i + 2 - (i > idx ? 1 : 0);   // rows below the deleted one moved up
+          t.sheet.getRange(rn, t.col.SetNo + 1).setValue(Number(r[t.col.SetNo]) - 1);
+        }
+      });
+      SpreadsheetApp.flush();
+      return { ok: true, deletedRow: rowNum };
+    }
+
+    const w = Number(body.weight), reps = Number(body.reps);
+    if (!(reps > 0) || !(w >= 0)) return { ok: false, error: 'Invalid weight or reps' };
+    t.sheet.getRange(rowNum, t.col.Weight + 1).setValue(w);
+    t.sheet.getRange(rowNum, t.col.Reps + 1).setValue(reps);
+    SpreadsheetApp.flush();
+    return { ok: true, row: rowNum };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Known exercises (the Exercise column's dropdown list plus anything already logged) and people,
+ * for the app's suggestions. The app shows them prettified but sends these exact codes back.
+ */
 function meta_() {
   const t = table_();
   const ex = {}, people = {};
+  allowedExercises_(t).forEach(function (e) { ex[e] = true; });
   t.rows.forEach(function (r) {
     const e = normExercise_(r[t.col.Exercise]);
     const p = String(r[t.col.Person]).trim();
@@ -120,6 +182,24 @@ function lastSession_(person, exercise) {
 
 // ---------- helpers ----------
 
+/** Values from the data-validation dropdown on the Exercise column (list or range), if any. */
+function allowedExercises_(t) {
+  try {
+    const rule = t.sheet.getRange(2, t.col.Exercise + 1).getDataValidation();
+    if (!rule) return [];
+    const type = rule.getCriteriaType();
+    const args = rule.getCriteriaValues();
+    let values = [];
+    if (type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST) values = args[0];
+    else if (type === SpreadsheetApp.DataValidationCriteria.VALUE_IN_RANGE) {
+      values = args[0].getValues().reduce(function (a, row) { return a.concat(row); }, []);
+    }
+    return values.map(function (v) { return normExercise_(v); }).filter(String);
+  } catch (e) {
+    return [];
+  }
+}
+
 /** Reads LiftData, locating columns by their header names (creates the tab if missing). */
 function table_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -142,9 +222,12 @@ function table_() {
   return { sheet: sheet, col: col, width: width, rows: rows };
 }
 
-/** "Hip Adduction" / "hip-adduction" -> "hip_adduction", matching the sheet's style. */
+/** "Hip Adduction" -> "hip_adduction", "Fly (Cable)" -> "fly(cable)", matching the sheet's style. */
 function normExercise_(v) {
-  return String(v || '').trim().toLowerCase().replace(/[\s\-]+/g, '_');
+  return String(v || '').trim().toLowerCase()
+    .replace(/\s*\(\s*/g, '(')
+    .replace(/\s*\)/g, ')')
+    .replace(/[\s\-]+/g, '_');
 }
 
 function sameText_(a, b) {

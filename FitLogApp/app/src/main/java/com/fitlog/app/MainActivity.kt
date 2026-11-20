@@ -5,7 +5,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,15 +28,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -63,6 +66,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,13 +97,14 @@ class MainActivity : ComponentActivity() {
 fun LogScreen(vm: LogViewModel = viewModel()) {
     val snackbar = remember { SnackbarHostState() }
     var showSettings by rememberSaveable { mutableStateOf(vm.scriptUrl.isBlank()) }
+    var editingId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     // When person + a known exercise are set, fetch what that person did last time.
     LaunchedEffect(vm.exercise, vm.person) {
         vm.lastSession = null
-        if (vm.person.isNotBlank() && normExercise(vm.exercise) in vm.exercises) {
+        if (vm.person.isNotBlank() && vm.exerciseCode() in vm.exercises) {
             delay(400)
             vm.loadLast()
         }
@@ -107,7 +113,13 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("FitLog", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppLogo()
+                        Spacer(Modifier.width(10.dp))
+                        Text("FitLog", fontWeight = FontWeight.SemiBold)
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
@@ -158,8 +170,18 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
             vm.lastSession?.let { LastSessionHint(it) }
 
             SetsCard(vm)
+            if (vm.today.isNotEmpty()) TodayList(vm.today, onEdit = { editingId = it.id })
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    vm.today.firstOrNull { it.id == editingId }?.let { s ->
+        EditSetDialog(
+            s = s,
+            onSave = { w, r -> vm.editSet(s, w, r) },
+            onDelete = { vm.deleteSet(s) },
+            onDismiss = { editingId = null }
+        )
     }
 
     if (showSettings) {
@@ -168,6 +190,22 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
             initialSecret = vm.secret,
             onSave = { url, secret -> vm.saveSettings(url, secret); showSettings = false },
             onDismiss = { showSettings = false }
+        )
+    }
+}
+
+/** The launcher icon in miniature: the same white dumbbell on the same lime. */
+@Composable
+fun AppLogo() {
+    Box(
+        Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(Lime),
+        contentAlignment = Alignment.Center
+    ) {
+        // The icon artwork sits inside a 108-unit canvas with padding, so draw it larger than the box.
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = "FitLog logo",
+            modifier = Modifier.requiredSize(46.dp)
         )
     }
 }
@@ -253,10 +291,16 @@ fun PersonAndDate(vm: LogViewModel) {
 @Composable
 fun ExerciseField(vm: LogViewModel) {
     var expanded by remember { mutableStateOf(false) }
-    val typed = normExercise(vm.exercise)
+    // Codes stay internal; the menu shows and matches on pretty names ("Leg Press").
+    val typed = vm.exercise.trim()
+    val typedCode = normExercise(typed)
     val matches = vm.exercises
-        .filter { it.contains(typed) && it != typed }
-        .take(8)
+        .map { it to prettyExercise(it) }
+        .filter { (code, pretty) ->
+            !pretty.equals(typed, ignoreCase = true) &&
+                (pretty.contains(typed, ignoreCase = true) || code.contains(typedCode))
+        }
+        .sortedBy { it.second.lowercase() }
     val open = expanded && matches.isNotEmpty()
 
     ExposedDropdownMenuBox(expanded = open, onExpandedChange = { expanded = it }) {
@@ -270,8 +314,8 @@ fun ExerciseField(vm: LogViewModel) {
             modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable).fillMaxWidth()
         )
         ExposedDropdownMenu(expanded = open, onDismissRequest = { expanded = false }) {
-            matches.forEach { name ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { vm.exercise = name; expanded = false })
+            matches.forEach { (_, pretty) ->
+                DropdownMenuItem(text = { Text(pretty) }, onClick = { vm.exercise = pretty; expanded = false })
             }
         }
     }
@@ -289,7 +333,7 @@ fun LastSessionHint(text: String) {
     }
 }
 
-/** All sets in one card: a header row, compact number boxes, and "Add set" at the bottom. */
+/** One set per save: weight × reps. The sheet script numbers the set automatically. */
 @Composable
 fun SetsCard(vm: LogViewModel) {
     Surface(
@@ -299,27 +343,154 @@ fun SetsCard(vm: LogViewModel) {
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Header("Set", Modifier.width(36.dp))
                 Header("Weight", Modifier.weight(1f))
-                Spacer(Modifier.width(20.dp))
+                Spacer(Modifier.width(28.dp))
                 Header("Reps", Modifier.weight(1f))
-                Spacer(Modifier.width(40.dp))
             }
-            vm.sets.forEachIndexed { i, s ->
-                SetRow(
-                    index = i,
-                    entry = s,
-                    onChange = { vm.sets[i] = it },
-                    onRemove = { vm.removeSet(i) }
-                )
-            }
-            TextButton(onClick = vm::addSet, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Add, contentDescription = null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Add set")
-            }
+            SetRow(entry = vm.current, onChange = { vm.current = it })
         }
     }
+}
+
+/**
+ * Every set saved from this phone today, newest first, so you never have to wonder whether one
+ * went through. Green tick = the script confirmed the row is in the sheet; amber = on the phone,
+ * not yet sent. The newest set is highlighted.
+ */
+@Composable
+fun TodayList(sets: List<SavedSet>, onEdit: (SavedSet) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp, top = 4.dp)) {
+            Text("Today", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "${sets.size} set${if (sets.size == 1) "" else "s"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        sets.forEachIndexed { i, s -> TodayRow(s, newest = i == 0, onClick = { onEdit(s) }) }
+    }
+}
+
+@Composable
+private fun TodayRow(s: SavedSet, newest: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val container = when {
+        !s.inSheet -> colors.tertiaryContainer
+        newest -> colors.primaryContainer
+        else -> colors.surfaceContainerLow
+    }
+    val content = when {
+        !s.inSheet -> colors.onTertiaryContainer
+        newest -> colors.onPrimaryContainer
+        else -> colors.onSurface
+    }
+    Surface(
+        onClick = onClick,
+        color = container,
+        contentColor = content,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = if (newest) 12.dp else 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (s.inSheet) Icons.Filled.CheckCircle else Icons.Filled.Refresh,
+                contentDescription = if (s.inSheet) "Saved to sheet" else "Waiting to sync",
+                tint = if (s.inSheet && !newest) colors.primary else content,
+                modifier = Modifier.size(if (newest) 28.dp else 20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    (s.setNo?.let { "Set $it · " } ?: "") + s.exercise,
+                    style = if (newest) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
+                    fontWeight = if (newest) FontWeight.SemiBold else FontWeight.Medium
+                )
+                Text(
+                    "${s.person} · ${s.weight} × ${s.reps}" +
+                        if (s.inSheet) (s.row?.let { " · row $it" } ?: "") else " · waiting to sync",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Icon(
+                Icons.Filled.Edit,
+                contentDescription = "Edit set",
+                tint = content.copy(alpha = 0.6f),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/** Fix the weight/reps of a set, or delete it (with a confirmation step). */
+@Composable
+fun EditSetDialog(
+    s: SavedSet,
+    onSave: suspend (String, String) -> Boolean,
+    onDelete: suspend () -> Boolean,
+    onDismiss: () -> Unit
+) {
+    var entry by remember(s.id) { mutableStateOf(SetEntry(s.weight, s.reps.toString())) }
+    var confirmDelete by remember(s.id) { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val danger = MaterialTheme.colorScheme.error
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text((s.setNo?.let { "Set $it · " } ?: "") + s.exercise) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    s.person + if (s.inSheet) " · in the sheet" else " · waiting to sync",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (confirmDelete) {
+                    Text(
+                        if (s.inSheet) "Delete this set from the sheet? Later sets of ${s.person}'s ${s.exercise} today will be renumbered."
+                        else "Delete this set? It hasn't been sent to the sheet yet.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Header("Weight", Modifier.weight(1f))
+                        Spacer(Modifier.width(28.dp))
+                        Header("Reps", Modifier.weight(1f))
+                    }
+                    SetRow(entry = entry, onChange = { entry = it })
+                }
+                if (busy) CircularProgressIndicator(Modifier.size(22.dp).align(Alignment.CenterHorizontally), strokeWidth = 2.dp)
+            }
+        },
+        confirmButton = {
+            if (confirmDelete) {
+                TextButton(
+                    enabled = !busy,
+                    onClick = { scope.launch { busy = true; val ok = onDelete(); busy = false; if (ok) onDismiss() } }
+                ) { Text("Delete", color = danger) }
+            } else {
+                TextButton(
+                    enabled = !busy,
+                    onClick = { scope.launch { busy = true; val ok = onSave(entry.weight, entry.reps); busy = false; if (ok) onDismiss() } }
+                ) { Text("Save") }
+            }
+        },
+        dismissButton = {
+            Row {
+                if (!confirmDelete) {
+                    TextButton(enabled = !busy, onClick = { confirmDelete = true }) { Text("Delete", color = danger) }
+                }
+                TextButton(enabled = !busy, onClick = { if (confirmDelete) confirmDelete = false else onDismiss() }) {
+                    Text(if (confirmDelete) "Back" else "Cancel")
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -334,20 +505,8 @@ private fun Header(text: String, modifier: Modifier) {
 }
 
 @Composable
-fun SetRow(index: Int, entry: SetEntry, onChange: (SetEntry) -> Unit, onRemove: () -> Unit) {
+fun SetRow(entry: SetEntry, onChange: (SetEntry) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(36.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier.size(28.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "${index + 1}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-        }
         NumberBox(
             value = entry.weight,
             onValueChange = { v -> onChange(entry.copy(weight = v.filter { it.isDigit() || it == '.' || it == ',' })) },
@@ -359,7 +518,7 @@ fun SetRow(index: Int, entry: SetEntry, onChange: (SetEntry) -> Unit, onRemove: 
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
-            modifier = Modifier.width(20.dp)
+            modifier = Modifier.width(28.dp)
         )
         NumberBox(
             value = entry.reps,
@@ -367,14 +526,6 @@ fun SetRow(index: Int, entry: SetEntry, onChange: (SetEntry) -> Unit, onRemove: 
             keyboardType = KeyboardType.Number,
             modifier = Modifier.weight(1f)
         )
-        IconButton(onClick = onRemove, modifier = Modifier.size(40.dp)) {
-            Icon(
-                Icons.Filled.Close,
-                contentDescription = "Remove set ${index + 1}",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
     }
 }
 
