@@ -9,6 +9,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -97,10 +99,10 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
-    // When the typed name matches a known exercise, fetch what you did last time.
-    LaunchedEffect(vm.exercise) {
+    // When person + a known exercise are set, fetch what that person did last time.
+    LaunchedEffect(vm.exercise, vm.person) {
         vm.lastSession = null
-        if (vm.exercises.any { it.equals(vm.exercise.trim(), ignoreCase = true) }) {
+        if (vm.person.isNotBlank() && normExercise(vm.exercise) in vm.exercises) {
             delay(400)
             vm.loadLast()
         }
@@ -140,15 +142,17 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
                 }
             }
 
+            PersonField(vm)
+
             OutlinedButton(onClick = {
-                val d = runCatching { LocalDate.parse(vm.date) }.getOrDefault(LocalDate.now())
+                val d = vm.date
                 DatePickerDialog(ctx, { _, y, m, day ->
-                    vm.date = LocalDate.of(y, m + 1, day).toString()
+                    vm.date = LocalDate.of(y, m + 1, day)
                 }, d.year, d.monthValue - 1, d.dayOfMonth).show()
             }) {
                 Icon(Icons.Filled.DateRange, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text(vm.date)
+                Text("${vm.date.monthValue}/${vm.date.dayOfMonth}/${vm.date.year}")
             }
 
             ExerciseField(vm)
@@ -157,18 +161,10 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Unit:", style = MaterialTheme.typography.bodyLarge)
-                listOf("kg", "lb").forEach { u ->
-                    FilterChip(selected = vm.unit == u, onClick = { vm.changeUnit(u) }, label = { Text(u) })
-                }
-            }
-
             vm.sets.forEachIndexed { i, s ->
                 SetRow(
                     index = i,
                     entry = s,
-                    unit = vm.unit,
                     onChange = { vm.sets[i] = it },
                     onRemove = { vm.removeSet(i) }
                 )
@@ -179,13 +175,6 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
                 Spacer(Modifier.width(8.dp))
                 Text("Add set")
             }
-
-            OutlinedTextField(
-                value = vm.notes,
-                onValueChange = { vm.notes = it },
-                label = { Text("Notes (optional)") },
-                modifier = Modifier.fillMaxWidth()
-            )
 
             Button(
                 onClick = vm::save,
@@ -208,13 +197,39 @@ fun LogScreen(vm: LogViewModel = viewModel()) {
     }
 }
 
+/** Name field plus one-tap chips for everyone already in the sheet (for switching between partners). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun PersonField(vm: LogViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        OutlinedTextField(
+            value = vm.person,
+            onValueChange = vm::changePerson,
+            label = { Text("Person") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (vm.people.isNotEmpty()) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                vm.people.forEach { p ->
+                    FilterChip(
+                        selected = p.equals(vm.person.trim(), ignoreCase = true),
+                        onClick = { vm.changePerson(p) },
+                        label = { Text(p) }
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExerciseField(vm: LogViewModel) {
     var expanded by remember { mutableStateOf(false) }
-    val typed = vm.exercise.trim()
+    val typed = normExercise(vm.exercise)
     val matches = vm.exercises
-        .filter { it.contains(typed, ignoreCase = true) && !it.equals(typed, ignoreCase = true) }
+        .filter { it.contains(typed) && it != typed }
         .take(8)
     val open = expanded && matches.isNotEmpty()
 
@@ -236,13 +251,13 @@ fun ExerciseField(vm: LogViewModel) {
 }
 
 @Composable
-fun SetRow(index: Int, entry: SetEntry, unit: String, onChange: (SetEntry) -> Unit, onRemove: () -> Unit) {
+fun SetRow(index: Int, entry: SetEntry, onChange: (SetEntry) -> Unit, onRemove: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("${index + 1}", Modifier.width(20.dp), style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             value = entry.weight,
             onValueChange = { v -> onChange(entry.copy(weight = v.filter { it.isDigit() || it == '.' || it == ',' })) },
-            label = { Text("Weight ($unit)") },
+            label = { Text("Weight") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f)

@@ -15,13 +15,17 @@ class Prefs(context: Context) {
         get() = sp.getString("secret", "").orEmpty()
         set(v) = sp.edit().putString("secret", v).apply()
 
-    var unit: String
-        get() = sp.getString("unit", "kg").orEmpty()
-        set(v) = sp.edit().putString("unit", v).apply()
+    var person: String
+        get() = sp.getString("person", "").orEmpty()
+        set(v) = sp.edit().putString("person", v).apply()
 
     var exercises: List<String>
         get() = sp.getString("exercises", "").orEmpty().split("\n").filter { it.isNotBlank() }
         set(v) = sp.edit().putString("exercises", v.joinToString("\n")).apply()
+
+    var people: List<String>
+        get() = sp.getString("people", "").orEmpty().split("\n").filter { it.isNotBlank() }
+        set(v) = sp.edit().putString("people", v.joinToString("\n")).apply()
 
     var pending: JSONArray
         get() = JSONArray(sp.getString("pending", "[]"))

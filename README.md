@@ -3,10 +3,10 @@
 An Android app where you enter the exercise and the weight × reps for each set. Each set is added as a row in **your own** Google Sheet, so you can chart your progress however you like.
 
 ```
-FitLog app  ──▶  small Apps Script attached to your sheet  ──▶  "Log" tab in your sheet
+FitLog app  ──▶  small Apps Script attached to your sheet  ──▶  "LiftData" tab in your sheet
 ```
 
-Everyone who uses the app connects it to their own sheet, so your data stays separate from your friends'.
+Training partners can share one sheet: every row has a **Person** column. Groups who want their data kept apart each connect the app to their own sheet.
 
 ---
 
@@ -36,25 +36,31 @@ New versions show up on the [Releases page](https://github.com/Sametcan-Yuzlu/Fi
 ## 3. Use it
 
 1. On first launch, enter the **Web app URL** and **Secret**. After you save, it should say *Connected to Google Sheets ✓*.
-2. Choose the date (today by default), type the exercise, pick kg or lb, and fill in weight and reps for each set. **Add set** copies the previous set's numbers, so you only edit what changed.
-3. Tap **Save to Google Sheets**.
+2. Pick the **person** (tap a name chip, or type a new name), check the date (today by default), type the exercise, and fill in weight and reps. **Add set** copies the previous set's numbers.
+3. Tap **Save to Google Sheets**. The person, date and exercise stay filled in, so a partner can tap their name and log their set straight after.
 
-The rows go into a tab called **Log**, which is created automatically:
+Rows go into the **LiftData** tab, one row per set:
 
-`Timestamp | Date | Exercise | Set | Weight | Reps | Unit | Volume | Notes`
+| Person | Date | Exercise | SetNo | Weight | Reps |
+|---|---|---|---|---|---|
+| Samet | 10/22/2026 | hip_adduction | 1 | 85 | 12 |
+
+- Columns are found by their header names in row 1, so extra columns or a different column order are fine. If the tab doesn't exist yet, it's created with these headers.
+- Exercise names are stored in lowercase with underscores: typing "Leg Press" saves `leg_press`.
+- **SetNo** continues from the sets already logged that day for that person and exercise. Logging one set at a time numbers them 1, 2, 3, …
 
 Other features:
-- **Exercise autocomplete:** suggests names you've logged before.
-- **"Last time" line:** shows your previous session for that exercise (e.g. `60×8, 60×8, 62.5×6 kg`), so you know what to beat.
-- **Offline logging:** without signal, the workout is saved on the phone and sent when you're back online.
+- **Suggestions:** names and exercises already in the sheet show up as you type.
+- **"Last time" line:** shows that person's previous session for the exercise (e.g. `Samet last time (10/22/2026): 85×12, 85×13`), so you know what to beat.
+- **Offline logging:** without signal, sets are saved on the phone and sent when you're back online.
 - **Bodyweight exercises:** leave the weight empty and it's logged as 0.
 
 ### Charting progress
 
-Add a new tab with, for example, your best weight per day for one exercise:
+Add a new tab with, for example, Samet's best leg press weight per day:
 
 ```
-=QUERY(Log!A:I, "select B, max(E) where C = 'Bench Press' group by B label max(E) 'Top set'", 1)
+=QUERY(LiftData!A:F, "select B, max(E) where A = 'Samet' and C = 'leg_press' group by B label max(E) 'Top set'", 1)
 ```
 
 Then **Insert → Chart → Line chart**.

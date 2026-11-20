@@ -20,19 +20,22 @@ import java.time.LocalDate
 
 data class SetEntry(val weight: String = "", val reps: String = "")
 
+/** Matches the sheet's exercise style: "Hip Adduction" -> "hip_adduction". */
+fun normExercise(s: String): String = s.trim().lowercase().replace(Regex("[\\s\\-]+"), "_")
+
 class LogViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
 
     var scriptUrl by mutableStateOf(prefs.scriptUrl); private set
     var secret by mutableStateOf(prefs.secret); private set
-    var unit by mutableStateOf(prefs.unit); private set
 
-    var date by mutableStateOf(LocalDate.now().toString())
+    var person by mutableStateOf(prefs.person); private set
+    var date by mutableStateOf(LocalDate.now())
     var exercise by mutableStateOf("")
-    var notes by mutableStateOf("")
     val sets = mutableStateListOf(SetEntry())
 
     var exercises by mutableStateOf(prefs.exercises); private set
+    var people by mutableStateOf(prefs.people); private set
     var lastSession by mutableStateOf<String?>(null)
     var saving by mutableStateOf(false); private set
     var pendingCount by mutableIntStateOf(prefs.pending.length()); private set
@@ -44,7 +47,7 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
     init {
         if (scriptUrl.isNotBlank()) {
             viewModelScope.launch {
-                refreshExercises()
+                refreshMeta()
                 syncPendingInternal(verbose = false)
             }
         }
@@ -57,7 +60,7 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val r = call(JSONObject().put("action", "exercises"))
                 if (r.optBoolean("ok")) {
-                    mergeExercises(r.optJSONArray("exercises"))
+                    mergeMeta(r)
                     msg("Connected to Google Sheets ✓")
                     syncPendingInternal(verbose = false)
                 } else {
@@ -71,8 +74,8 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun changeUnit(u: String) {
-        unit = u; prefs.unit = u
+    fun changePerson(p: String) {
+        person = p; prefs.person = p.trim()
     }
 
     fun addSet() {
@@ -84,7 +87,9 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun save() {
-        val ex = exercise.trim()
+        val who = person.trim()
+        val ex = normExercise(exercise)
+        if (who.isEmpty()) return msg("Enter who is lifting (Person)")
         if (ex.isEmpty()) return msg("Enter an exercise name")
 
         val arr = JSONArray()
@@ -101,14 +106,13 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
 
         val payload = JSONObject()
             .put("action", "log")
-            .put("date", date)
+            .put("person", who)
+            .put("date", date.toString())
             .put("exercise", ex)
-            .put("unit", unit)
-            .put("notes", notes.trim())
             .put("sets", arr)
 
         if (scriptUrl.isBlank()) {
-            enqueue(payload); rememberExercise(ex); resetForm()
+            enqueue(payload); remember(who, ex); resetForm()
             return msg("Saved on phone — add the script URL in Settings to sync")
         }
 
@@ -117,8 +121,8 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val r = call(payload)
                 if (r.optBoolean("ok")) {
-                    rememberExercise(ex); resetForm()
-                    msg("Logged ${arr.length()} set(s) of $ex")
+                    remember(who, ex); resetForm()
+                    msg("Logged ${arr.length()} set(s) of $ex for $who")
                     syncPendingInternal(verbose = false)
                 } else {
                     msg("Sheet said: ${r.optString("error")}")
@@ -126,7 +130,7 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                enqueue(payload); rememberExercise(ex); resetForm()
+                enqueue(payload); remember(who, ex); resetForm()
                 msg("No connection — saved on phone, will sync later")
             } catch (e: Exception) {
                 msg(e.message ?: "Something went wrong")
@@ -140,21 +144,22 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { syncPendingInternal(verbose = true) }
     }
 
-    /** Shows what you did last time for the exercise currently typed in. */
+    /** Shows what this person did last time for the selected exercise. */
     fun loadLast() {
-        val ex = exercise.trim()
+        val ex = normExercise(exercise)
+        val who = person.trim()
         lastJob?.cancel()
-        if (ex.isEmpty() || scriptUrl.isBlank()) { lastSession = null; return }
+        if (ex.isEmpty() || who.isEmpty() || scriptUrl.isBlank()) { lastSession = null; return }
         lastJob = viewModelScope.launch {
             try {
-                val r = call(JSONObject().put("action", "last").put("exercise", ex))
+                val r = call(JSONObject().put("action", "last").put("person", who).put("exercise", ex))
                 val arr = r.optJSONArray("sets")
                 lastSession = if (r.optBoolean("ok") && arr != null && arr.length() > 0) {
                     val list = (0 until arr.length()).joinToString(", ") {
                         val s = arr.getJSONObject(it)
                         "${fmt(s.optDouble("weight"))}×${s.optInt("reps")}"
                     }
-                    "Last time (${r.optString("date")}): $list ${r.optString("unit")}"
+                    "$who last time (${r.optString("date")}): $list"
                 } else null
             } catch (e: CancellationException) {
                 throw e
@@ -171,14 +176,14 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
         return SheetsClient.post(scriptUrl, withSecret)
     }
 
-    private suspend fun refreshExercises() {
+    private suspend fun refreshMeta() {
         try {
             val r = call(JSONObject().put("action", "exercises"))
-            if (r.optBoolean("ok")) mergeExercises(r.optJSONArray("exercises"))
+            if (r.optBoolean("ok")) mergeMeta(r)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            // offline: keep the cached list
+            // offline: keep the cached lists
         }
     }
 
@@ -225,27 +230,33 @@ class LogViewModel(app: Application) : AndroidViewModel(app) {
         pendingCount = q.length()
     }
 
-    private fun mergeExercises(arr: JSONArray?) {
-        if (arr == null) return
-        val merged = (exercises + (0 until arr.length()).map { arr.getString(it) })
-            .map { it.trim() }.filter { it.isNotEmpty() }
+    private fun mergeMeta(r: JSONObject) {
+        exercises = merge(exercises, r.optJSONArray("exercises")?.toList().orEmpty().map(::normExercise))
+        prefs.exercises = exercises
+        people = merge(people, r.optJSONArray("people")?.toList().orEmpty())
+        prefs.people = people
+        if (person.isBlank() && people.size == 1) changePerson(people[0])
+    }
+
+    private fun remember(who: String, ex: String) {
+        exercises = merge(exercises, listOf(ex)); prefs.exercises = exercises
+        people = merge(people, listOf(who)); prefs.people = people
+    }
+
+    private fun merge(a: List<String>, b: List<String>): List<String> =
+        (a + b).map { it.trim() }.filter { it.isNotEmpty() }
             .distinctBy { it.lowercase() }.sortedBy { it.lowercase() }
-        exercises = merged; prefs.exercises = merged
-    }
 
-    private fun rememberExercise(name: String) {
-        if (exercises.none { it.equals(name, ignoreCase = true) }) {
-            val merged = (exercises + name).sortedBy { it.lowercase() }
-            exercises = merged; prefs.exercises = merged
-        }
-    }
+    private fun JSONArray.toList(): List<String> = (0 until length()).map { getString(it) }
 
+    /**
+     * Keeps person, date and exercise (partners usually alternate sets on the same machine)
+     * and clears only the set rows. SetNo keeps counting up in the sheet.
+     */
     private fun resetForm() {
-        exercise = ""
-        notes = ""
-        lastSession = null
         sets.clear()
         sets.add(SetEntry())
+        loadLast()
     }
 
     private fun msg(text: String) {
