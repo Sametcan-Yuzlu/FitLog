@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FitLog</title>
+  <meta name="description" content="Log your gym sets straight into your Google Sheet.">
+  <meta name="theme-color" content="#FAFBF7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#11140F" media="(prefers-color-scheme: dark)">
+  <!-- iPhone: "Add to Home Screen" opens full-screen with this icon and name -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FitLog">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="logo" src="icons/icon-192.png" alt="" width="34" height="34">
+      <h1>FitLog</h1>
+    </div>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.62.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54A.48.48 0 0 0 13.92 2h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.72 8.47a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.07.63-.07.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.25.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+    </button>
+  </header>
+
+  <main id="main">
+    <div id="pending" class="banner" hidden>
+      <span id="pendingText"></span>
+      <button id="syncBtn" class="text-btn">Sync</button>
+    </div>
+
+    <section class="row">
+      <label class="field grow">
+        <span>Person</span>
+        <input id="person" autocomplete="off" autocapitalize="words" spellcheck="false">
+      </label>
+      <label class="date-btn">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 4h-1V2h-2v2H8V2H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 16H5V10h14v10zM5 8V6h14v2H5zm2 4h2v2H7v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z"/></svg>
+        <span id="dateLabel">Today</span>
+        <input id="date" type="date" aria-label="Date">
+      </label>
+    </section>
+    <div id="chips" class="chips"></div>
+
+    <section class="exercise-wrap">
+      <label class="field">
+        <span>Exercise</span>
+        <input id="exercise" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="next">
+      </label>
+      <button id="exToggle" class="ex-toggle" aria-label="Show exercises" tabindex="-1">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>
+      </button>
+      <ul id="suggest" class="suggest" role="listbox" hidden></ul>
+    </section>
+
+    <p id="last" class="hint" hidden></p>
+
+    <section class="card">
+      <div class="set-head"><span>Weight</span><i></i><span>Reps</span></div>
+      <div class="set-row">
+        <input id="weight" class="num" inputmode="decimal" placeholder="–" aria-label="Weight" enterkeyhint="next">
+        <b>×</b>
+        <input id="reps" class="num" inputmode="numeric" pattern="[0-9]*" placeholder="–" aria-label="Reps" enterkeyhint="done">
+      </div>
+    </section>
+
+    <section id="todayWrap" hidden>
+      <div class="today-head"><strong>Today</strong> <span id="todayCount"></span></div>
+      <ul id="today" class="today"></ul>
+    </section>
+  </main>
+
+  <footer class="savebar">
+    <button id="saveBtn" class="save">Save to sheet</button>
+  </footer>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="settingsDlg">
+    <form method="dialog">
+      <h2>Connect to Google Sheets</h2>
+      <p>Paste the Web app URL from your Apps Script deployment, and the SECRET you set in Code.gs.</p>
+      <label class="field"><span>Web app URL (…/exec)</span><input id="url" type="url" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Secret</span><input id="secret" autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+      <div class="dlg-actions">
+        <button value="cancel" class="text-btn">Cancel</button>
+        <button id="settingsSave" value="save" class="text-btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="editDlg">
+    <form method="dialog">
+      <h2 id="editTitle"></h2>
+      <p id="editSub" class="muted"></p>
+      <div id="editFields">
+        <div class="set-head"><span>Weight</span><i></i><span>Reps</span></div>
+        <div class="set-row">
+          <input id="editWeight" class="num" inputmode="decimal" aria-label="Weight">
+          <b>×</b>
+          <input id="editReps" class="num" inputmode="numeric" pattern="[0-9]*" aria-label="Reps">
+        </div>
+      </div>
+      <p id="editConfirm" hidden></p>
+      <div class="dlg-actions">
+        <button type="button" id="editDelete" class="text-btn danger">Delete</button>
+        <button type="button" id="editCancel" class="text-btn">Cancel</button>
+        <button type="button" id="editOk" class="text-btn">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

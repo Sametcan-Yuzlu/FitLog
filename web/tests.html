@@ -1,0 +1,44 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>FitLog name tests</title>
+<pre id="out">running…</pre>
+<script type="module">
+  // Same cases as the Android unit test (ExerciseNamesTest.kt).
+  import { prettyExercise, toExerciseCode } from './names.js';
+
+  const sheet = [
+    'hip_adduction', 'hip_abduction', 'leg_press', 'leg_curl', 'leg_extension',
+    'chest_press', 'fly(machine)', 'fly(cable)',
+    'shoulder_press(dumbbell)', 'shoulder_press(machine)',
+    'lateral_raise(machine)', 'lateral_raise(dumbbell)', 'single_arm_tricep_pushdown',
+    'lat_pulldown', 'row', 'lat_pullover', 'face_pull',
+    'biceps_curl(dumbbell)', 'biceps_curl(barbell)', 'hammer_curl', 'abdominal',
+    'triceps_pulldown', 'triceps_pushdown', 'pullups', 'bench_press', 'incline_dumbbell_press',
+  ];
+  const expected = {
+    'hip_adduction': 'Hip Adduction', 'leg_press': 'Leg Press', 'chest_press': 'Chest Press',
+    'fly(machine)': 'Fly (Machine)', 'fly(cable)': 'Fly (Cable)',
+    'shoulder_press(dumbbell)': 'Shoulder Press (Dumbbell)', 'lateral_raise(machine)': 'Lateral Raise (Machine)',
+    'single_arm_tricep_pushdown': 'Single Arm Tricep Pushdown', 'row': 'Row',
+    'biceps_curl(barbell)': 'Biceps Curl (Barbell)', 'biceps_curl(dumbbell)': 'Biceps Curl (Dumbbell)',
+    'abdominal': 'Abdominal', 'pullups': 'Pullups', 'bench_press': 'Bench Press',
+    'incline_dumbbell_press': 'Incline Dumbbell Press',
+  };
+
+  const fails = []; let n = 0;
+  const eq = (a, b, what) => { n++; if (a !== b) fails.push(`${what}: expected "${b}", got "${a}"`); };
+
+  for (const [code, pretty] of Object.entries(expected)) eq(prettyExercise(code), pretty, `pretty ${code}`);
+  for (const code of sheet) {
+    eq(toExerciseCode(prettyExercise(code), sheet), code, `round-trip ${code}`);
+    eq(toExerciseCode(prettyExercise(code).toLowerCase(), sheet), code, `lowercase round-trip ${code}`);
+  }
+  eq(new Set(sheet.map(prettyExercise)).size, sheet.length, 'unique display names');
+  eq(toExerciseCode('Fly (Cable)', []), 'fly(cable)', 'new name with brackets');
+  eq(toExerciseCode('Cable Crunch', []), 'cable_crunch', 'new name');
+  eq(toExerciseCode('shoulder press ( machine )', []), 'shoulder_press(machine)', 'messy spacing');
+
+  document.getElementById('out').textContent =
+    fails.length ? `FAILED ${fails.length}/${n}\n` + fails.join('\n') : `PASSED ${n}/${n}`;
+  document.title = fails.length ? 'FAILED' : 'PASSED';
+</script>

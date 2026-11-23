@@ -1,6 +1,6 @@
 # FitLog: log your sets to Google Sheets
 
-An Android app where you enter the exercise and the weight × reps for each set. Each set is added as a row in **your own** Google Sheet, so you can chart your progress however you like.
+An app for **Android and iPhone** where you enter the exercise and the weight × reps for each set. Each set is added as a row in **your own** Google Sheet, so you can chart your progress however you like.
 
 ```
 FitLog app  ──▶  small Apps Script attached to your sheet  ──▶  "LiftData" tab in your sheet
@@ -11,6 +11,18 @@ Training partners can share one sheet: every row has a **Person** column. Groups
 ---
 
 ## 1. Install the app (on your phone, no computer needed)
+
+### iPhone
+
+1. Open **https://sametcan-yuzlu.github.io/FitLog/** in **Safari**.
+2. Tap the **Share** button (square with an arrow) → **Add to Home Screen** → **Add**.
+3. Open **FitLog** from your home screen. It opens full-screen with the lime dumbbell icon, like a normal app.
+
+Do steps 2 and 3 **before** entering your script URL. On iPhone, the home-screen app keeps its own settings, separate from the Safari tab. Updates arrive on their own: the next time you open it with internet, you get the latest version. It also opens without signal; sets saved offline are sent when you're back online.
+
+(It works in any browser on Android or a computer too, at the same link.)
+
+### Android
 
 1. On your Android phone, open
    **https://github.com/Sametcan-Yuzlu/FitLog/releases/latest/download/FitLog.apk**
@@ -72,5 +84,7 @@ Then **Insert → Chart → Line chart**.
 ## Maintainer notes
 
 - `FitLogApp/` is the Android Studio project (Kotlin + Jetpack Compose, min Android 8.0).
+- `web/` is the iPhone / browser version: plain HTML, CSS and JavaScript with no build step. It's an installable web app with offline support (`sw.js`) and talks to the same Apps Script. Every push that changes `web/` publishes it to GitHub Pages via [pages.yml](.github/workflows/pages.yml). Open `web/tests.html` in a browser to run the exercise-name tests, and run `web/make-icons.ps1` to redraw the icons.
+- Both apps use the same exercise-name rules (`ExerciseNames.kt` and `web/names.js`), so keep them in sync.
 - Every push to `main` that changes `FitLogApp/` makes [GitHub Actions](.github/workflows/build-apk.yml) build a signed APK and publish it as a new release (`v1.0.<run number>`). You can also start a build from the Actions tab with **Run workflow**.
 - The signing key is kept **outside the repo** in repository secrets: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. The original key file is `signing/fitlog-release.jks`, which git ignores. Keep a backup: if the key is lost, new versions can't install over old ones.
